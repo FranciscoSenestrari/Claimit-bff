@@ -1,14 +1,14 @@
 import Fastify from "fastify";
-import appService from "../src/app"; // Ajusta la ruta a tu app.ts
+import appService from "../src/app"; // Asegúrate de que esta ruta sea correcta
 
-const fastify = Fastify({
+const server = Fastify({
   logger: true,
 });
 
-export default async (req: any, res: any) => {
-  // Registramos tu aplicación modular como un plugin
-  await fastify.register(appService);
+// Registrar el plugin de tu app
+server.register(appService);
 
-  await fastify.ready();
-  fastify.server.emit("request", req, res);
+export default async (req: any, res: any) => {
+  await server.ready();
+  server.server.emit("request", req, res);
 };
