@@ -109,6 +109,13 @@ const app: FastifyPluginAsync<AppOptions> = async (
     dir: join(__dirname, "plugins"),
     options: opts,
   });
+  fastify.get("/", async () => {
+    return {
+      status: "online",
+      message: "Welcome to Claimit BFF API",
+      version: "1.0.0",
+    };
+  });
 
   // Carga automática de Rutas (Carpeta src/routes)
   void fastify.register(AutoLoad, {
