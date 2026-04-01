@@ -8,7 +8,16 @@ export interface JwtUser {
   storeId?: string | null
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key_change_in_production'
+// Fail hard at startup if JWT_SECRET is not defined — never allow a default fallback in any environment
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    'FATAL: JWT_SECRET environment variable is not set. ' +
+    'The server refuses to start without a secure secret. ' +
+    'Set JWT_SECRET in your .env file.'
+  )
+}
+
+const JWT_SECRET = process.env.JWT_SECRET
 const SUPERUSER_UID = process.env.SUPERUSER_UID
 
 const authPlugin: FastifyPluginAsync = async (fastify) => {

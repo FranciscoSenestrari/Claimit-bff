@@ -1,9 +1,14 @@
 import { FastifyPluginAsync } from 'fastify'
+import { requireRoomAdmin } from '../helpers/requireRoomAdmin'
 
 const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
   const authenticate = { preHandler: [fastify.authenticate] }
+  // Admin endpoints require auth + ownership check
+  const adminAuth = {
+    preHandler: [fastify.authenticate, requireRoomAdmin.bind(fastify)],
+  }
 
-  // GET /api/rooms
+  // GET /api/rooms — any authenticated user can list rooms
   fastify.get('/api/rooms', authenticate, async (request, reply) => {
     try {
       const { storeId } = request.query as { storeId?: string }
@@ -19,11 +24,12 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, rooms })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error fetching rooms')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // GET /api/rooms/:id
+  // GET /api/rooms/:id — any authenticated user can view a room
   fastify.get('/api/rooms/:id', authenticate, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
@@ -37,11 +43,12 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, room: { id, ...data } })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error fetching room')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms
+  // POST /api/rooms — store_admin / collaborator / superuser can create rooms
   fastify.post('/api/rooms', authenticate, async (request, reply) => {
     try {
       const { name, storeId, storeName, auctionType } = request.body as {
@@ -56,8 +63,9 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
         return reply.status(403).send({ success: false, message: 'Forbidden' })
       }
 
-      const roomId = Math.random().toString(36).substring(2, 8).toUpperCase()
-      const setupToken = Math.random().toString(36).substring(2, 15)
+      const { randomBytes } = await import('crypto')
+      const roomId = randomBytes(3).toString('hex').toUpperCase()
+      const setupToken = randomBytes(24).toString('base64url')
 
       const roomData = {
         name: name.trim(),
@@ -78,12 +86,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
         setupToken,
       })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error creating room')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // PUT /api/rooms/:id/status
-  fastify.put('/api/rooms/:id/status', authenticate, async (request, reply) => {
+  // PUT /api/rooms/:id/status — room admin only
+  fastify.put('/api/rooms/:id/status', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const { status } = request.body as { status: string }
@@ -91,12 +100,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await fastify.db.ref(`rooms/${id}/metadata/status`).set(status)
       return reply.send({ success: true, message: 'Status updated' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error updating room status')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // DELETE /api/rooms/:id
-  fastify.delete('/api/rooms/:id', authenticate, async (request, reply) => {
+  // DELETE /api/rooms/:id — room admin only
+  fastify.delete('/api/rooms/:id', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const roomRef = fastify.db.ref(`rooms/${id}`)
@@ -115,35 +125,38 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, message: 'Room deleted' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error deleting room')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/history/:historyId/delete
-  fastify.post('/api/rooms/:id/history/:historyId/delete', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/history/:historyId/delete — room admin only
+  fastify.post('/api/rooms/:id/history/:historyId/delete', adminAuth, async (request, reply) => {
     try {
       const { id, historyId } = request.params as { id: string; historyId: string }
       await fastify.db.ref(`rooms/${id}/history/${historyId}`).remove()
       return reply.send({ success: true, message: 'History item removed' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error deleting history item')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // PUT /api/rooms/:id/history/:historyId/paid
-  fastify.put('/api/rooms/:id/history/:historyId/paid', authenticate, async (request, reply) => {
+  // PUT /api/rooms/:id/history/:historyId/paid — room admin only
+  fastify.put('/api/rooms/:id/history/:historyId/paid', adminAuth, async (request, reply) => {
     try {
       const { id, historyId } = request.params as { id: string; historyId: string }
       const { paid } = request.body as { paid: boolean }
       await fastify.db.ref(`rooms/${id}/history/${historyId}/paid`).set(paid)
       return reply.send({ success: true, message: 'Paid status updated' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error updating paid status')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/history/paid_batch
-  fastify.post('/api/rooms/:id/history/paid_batch', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/history/paid_batch — room admin only
+  fastify.post('/api/rooms/:id/history/paid_batch', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const { historyIds, paid } = request.body as { historyIds: string[]; paid: boolean }
@@ -156,11 +169,12 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await fastify.db.ref().update(updates)
       return reply.send({ success: true, message: 'Batch paid status updated' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error batch updating paid status')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/claim
+  // POST /api/rooms/:id/claim — any authenticated user (transaction prevents double claim)
   fastify.post('/api/rooms/:id/claim', authenticate, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
@@ -193,12 +207,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
         return reply.status(400).send({ success: false, message: 'Too late or product unavailable' })
       }
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error processing claim')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/admin/active_product
-  fastify.post('/api/rooms/:id/admin/active_product', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/admin/active_product — room admin only
+  fastify.post('/api/rooms/:id/admin/active_product', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const { product } = request.body as { product?: any }
@@ -214,12 +229,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       fastify.io.to(id).emit('roomUpdated')
       return reply.send({ success: true, message: 'Active product updated' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error updating active product')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/admin/finalize_bid
-  fastify.post('/api/rooms/:id/admin/finalize_bid', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/admin/finalize_bid — room admin only
+  fastify.post('/api/rooms/:id/admin/finalize_bid', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const activeProductRef = fastify.db.ref(`rooms/${id}/active_product`)
@@ -239,12 +255,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       fastify.io.to(id).emit('roomUpdated')
       return reply.send({ success: true, message: 'Bid finalized' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error finalizing bid')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/admin/push_product
-  fastify.post('/api/rooms/:id/admin/push_product', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/admin/push_product — room admin only
+  fastify.post('/api/rooms/:id/admin/push_product', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const { product } = request.body as { product: any }
@@ -276,12 +293,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       fastify.io.to(id).emit('roomUpdated')
       return reply.send({ success: true, message: 'Product pushed' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error pushing product')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/admin/delete_product
-  fastify.post('/api/rooms/:id/admin/delete_product', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/admin/delete_product — room admin only
+  fastify.post('/api/rooms/:id/admin/delete_product', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const { productId } = request.body as { productId: string }
@@ -291,12 +309,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       fastify.io.to(id).emit('roomUpdated')
       return reply.send({ success: true, message: 'Product deleted' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error deleting product')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/admin/add_product
-  fastify.post('/api/rooms/:id/admin/add_product', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/admin/add_product — room admin only
+  fastify.post('/api/rooms/:id/admin/add_product', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
       const { product } = request.body as { product: any }
@@ -306,12 +325,13 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       fastify.io.to(id).emit('roomUpdated')
       return reply.send({ success: true, message: 'Product added' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error adding product')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/rooms/:id/admin/end_auction
-  fastify.post('/api/rooms/:id/admin/end_auction', authenticate, async (request, reply) => {
+  // POST /api/rooms/:id/admin/end_auction — room admin only
+  fastify.post('/api/rooms/:id/admin/end_auction', adminAuth, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
 
@@ -333,7 +353,8 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       fastify.io.to(id).emit('roomUpdated')
       return reply.send({ success: true, message: 'Auction ended' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error ending auction')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 }

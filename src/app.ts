@@ -58,6 +58,7 @@ import AutoLoad, { AutoloadPluginOptions } from "@fastify/autoload";
 import { FastifyPluginAsync, FastifyServerOptions } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import dotenv from "dotenv";
 
 // Cargar variables de entorno
@@ -79,23 +80,27 @@ const app: FastifyPluginAsync<AppOptions> = async (
   // Configuración de CORS
   await fastify.register(cors, {
     origin: (origin, callback) => {
-      // Permitir localhost o si no hay origin (como Postman/Insomnia)
+      // Fix #10: only allow no-origin in development (curl, Postman, etc.)
+      if (!origin && process.env.NODE_ENV !== "production") {
+        callback(null, true);
+        return;
+      }
+
+      // Allow localhost in development
       if (
-        !origin ||
+        origin &&
         /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
       ) {
         callback(null, true);
         return;
       }
 
-      // En producción, comparar con la variable de entorno
-      const frontendUrl = process.env.FRONTEND_URL;
+      // In production, require exact match of FRONTEND_URL
+      const frontendUrl = process.env.FRONTEND_URL?.replace(/\/$/, '');
       if (frontendUrl && origin === frontendUrl) {
         callback(null, true);
       } else {
-        // Si no coincide, podrías devolver error o permitir (según tu necesidad)
-        // Por ahora permitimos el FRONTEND_URL configurado
-        callback(null, frontendUrl || "http://localhost:3000");
+        callback(null, false); // Reject unknown origins
       }
     },
     credentials: true,
@@ -103,6 +108,20 @@ const app: FastifyPluginAsync<AppOptions> = async (
 
   // Parser de Cookies
   await fastify.register(cookie);
+
+  // Rate Limiting Global: 100 requests per minute per IP
+  await fastify.register(rateLimit, {
+    global: true,
+    max: 100,
+    timeWindow: '1 minute',
+    errorResponseBuilder: () => ({
+      success: false,
+      message: 'Too many requests. Please slow down.',
+    }),
+  });
+
+  // Note: a stricter rate limit on /api/auth/login (10/min) is configured
+  // directly in routes/auth.ts using the route-level 'config.rateLimit' option.
 
   // Carga automática de Plugins (Carpeta src/plugins)
   void fastify.register(AutoLoad, {

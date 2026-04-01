@@ -15,14 +15,10 @@ const superuserRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
         const storesData = snapshot.val() || {};
         return reply.send({ success: true, stores: storesData });
       } catch (error: any) {
-        fastify.log.error("Error fetching stores for superuser");
+        fastify.log.error({ err: error }, "Error fetching stores for superuser");
         return reply
           .status(500)
-          .send({
-            success: false,
-            message: "Failed to fetch stores",
-            error: error.message,
-          });
+          .send({ success: false, message: "Internal server error" });
       }
     },
   );
@@ -44,13 +40,10 @@ const superuserRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
           message: `Store ${storeId} disabled status set to ${disabled}`,
         });
       } catch (error: any) {
+        fastify.log.error({ err: error }, "Error toggling store status");
         return reply
           .status(500)
-          .send({
-            success: false,
-            message: "Error updating store status",
-            error: error.message,
-          });
+          .send({ success: false, message: "Internal server error" });
       }
     },
   );

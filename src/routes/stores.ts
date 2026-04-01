@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify'
+import { randomBytes } from 'crypto'
 
 const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
   const authenticate = { preHandler: [fastify.authenticate] }
@@ -13,7 +14,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       const stores = Object.keys(data).map((key) => ({ id: key, ...data[key] }))
       return reply.send({ success: true, stores })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error fetching stores')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -31,7 +33,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, store: { id, ...data } })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error fetching store')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -44,7 +47,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await fastify.db.ref(`stores/${id}`).update({ bgColor, imageUrl })
       return reply.send({ success: true, message: 'Appearance updated' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error updating appearance')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -72,7 +76,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, collaborators: list })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error fetching collaborators')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -91,7 +96,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, bannedUsers: list })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error fetching banned users')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -109,7 +115,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, message: 'User banned' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error banning user')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -141,7 +148,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, message: 'Collaborator added' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error adding collaborator')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -157,7 +165,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await fastify.db.ref(`stores/${id}/collaborators/${uid}`).remove()
       return reply.send({ success: true, message: 'Collaborator removed' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error removing collaborator')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
@@ -168,11 +177,12 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await fastify.db.ref(`stores/${id}/bannedUsers/${uid}`).remove()
       return reply.send({ success: true, message: 'User unbanned' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error unbanning user')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/stores
+  // POST /api/stores — superuser only
   fastify.post('/api/stores', authenticate, async (request, reply) => {
     try {
       const { name } = request.body as { name: string }
@@ -180,7 +190,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
         return reply.status(403).send({ success: false, message: 'Forbidden' })
       }
 
-      const storeId = Math.random().toString(36).substring(2, 10).toUpperCase()
+      // Use cryptographically secure random ID
+      const storeId = randomBytes(4).toString('hex').toUpperCase()
       await fastify.db.ref(`stores/${storeId}`).set({
         name,
         adminId: '',
@@ -189,11 +200,12 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, storeId, message: 'Store created' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error creating store')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // DELETE /api/stores/:id
+  // DELETE /api/stores/:id — superuser only
   fastify.delete('/api/stores/:id', authenticate, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
@@ -212,11 +224,12 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await storeRef.remove()
       return reply.send({ success: true, message: 'Store deleted' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error deleting store')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // PUT /api/stores/:id/disabled
+  // PUT /api/stores/:id/disabled — superuser only
   fastify.put('/api/stores/:id/disabled', authenticate, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
@@ -228,11 +241,12 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
       await fastify.db.ref(`stores/${id}/disabled`).set(disabled)
       return reply.send({ success: true, message: `Store ${disabled ? 'disabled' : 'enabled'}` })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error updating store disabled status')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 
-  // POST /api/stores/:id/assignAdmin
+  // POST /api/stores/:id/assignAdmin — superuser only
   fastify.post('/api/stores/:id/assignAdmin', authenticate, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
@@ -279,7 +293,8 @@ const storesRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, message: 'Admin assigned' })
     } catch (error: any) {
-      return reply.status(500).send({ success: false, message: 'Server error', error: error.message })
+      fastify.log.error({ err: error }, 'Error assigning admin')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
     }
   })
 }

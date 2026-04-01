@@ -3,8 +3,10 @@ import { FastifyPluginAsync } from "fastify";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET =
-  process.env.JWT_SECRET || "super_secret_key_change_in_production";
+// JWT_SECRET is guaranteed to be set — plugins/auth.ts throws at startup if it's missing
+const JWT_SECRET = process.env.JWT_SECRET as string;
+
+const MAX_MESSAGE_LENGTH = 500; // Fix #9: prevent chat flood
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -18,13 +20,21 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
   const io = new SocketIOServer(fastify.server, {
     cors: {
       origin: function (origin, callback) {
+        // Fix #10: only allow no-origin requests in non-production environments
+        if (!origin && process.env.NODE_ENV !== "production") {
+          callback(null, true);
+          return;
+        }
         if (
-          !origin ||
+          origin &&
           /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
         ) {
           callback(null, true);
+        } else if (origin && origin === process.env.FRONTEND_URL?.replace(/\/$/, '')) {
+          callback(null, true);
         } else {
-          callback(null, process.env.FRONTEND_URL || "http://localhost:3000");
+          // Fix #10: reject unknown origins in production
+          callback(new Error("Not allowed by CORS"));
         }
       },
       credentials: true,
@@ -38,6 +48,7 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
       socket.handshake.headers.cookie?.split("token=")[1]?.split(";")[0];
 
     if (!token) {
+      // Allow guest connections (for viewing rooms without bidding)
       return next();
     }
 
@@ -46,8 +57,9 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
       socket.user = decoded;
       next();
     } catch (err) {
-      fastify.log.error("Socket authentication error");
-      next();
+      // Fix #7: reject connection with malformed/expired token instead of silently allowing guest
+      fastify.log.warn({ socketId: socket.id }, "Socket rejected: invalid JWT");
+      return next(new Error("Invalid token"));
     }
   });
 
@@ -57,6 +69,10 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
     );
 
     socket.on("joinRoom", async (roomId: string) => {
+      // Basic input validation
+      if (typeof roomId !== "string" || roomId.length > 20) {
+        return socket.emit("error", { message: "Invalid roomId." });
+      }
       socket.join(roomId);
       fastify.log.info(`Socket ${socket.id} joined room: ${roomId}`);
 
@@ -69,6 +85,7 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
     });
 
     socket.on("leaveRoom", (roomId: string) => {
+      if (typeof roomId !== "string" || roomId.length > 20) return;
       socket.leave(roomId);
       fastify.log.info(`Socket ${socket.id} left room: ${roomId}`);
       if (socket.user) {
@@ -94,6 +111,24 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
 
         const { roomId, productId, bidAmount } = data;
         const uid = socket.user.uid;
+
+        // Fix #8: validate bid inputs
+        if (typeof roomId !== "string" || roomId.length > 20) {
+          return socket.emit("error", { message: "Invalid roomId." });
+        }
+        if (typeof productId !== "string" || productId.length > 50) {
+          return socket.emit("error", { message: "Invalid productId." });
+        }
+        if (
+          typeof bidAmount !== "number" ||
+          !Number.isFinite(bidAmount) ||
+          bidAmount <= 0 ||
+          bidAmount > 1_000_000
+        ) {
+          return socket.emit("error", {
+            message: "Bid amount must be a positive number up to 1,000,000.",
+          });
+        }
 
         try {
           const productRef = fastify.db.ref(
@@ -132,7 +167,7 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
             timestamp: Date.now(),
           });
         } catch (error) {
-          fastify.log.error("Bid error");
+          fastify.log.error({ err: error }, "Bid error");
           socket.emit("error", { message: "Failed to place bid." });
         }
       },
@@ -146,7 +181,15 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
       const { roomId, text } = data;
       const uid = socket.user.uid;
 
-      if (!text || text.trim() === "") return;
+      // Fix #9: validate message length and roomId
+      if (typeof roomId !== "string" || roomId.length > 20) {
+        return socket.emit("error", { message: "Invalid roomId." });
+      }
+      if (!text || text.trim() === "" || text.length > MAX_MESSAGE_LENGTH) {
+        return socket.emit("error", {
+          message: `Message must be between 1 and ${MAX_MESSAGE_LENGTH} characters.`,
+        });
+      }
 
       try {
         const userSnap = await fastify.db.ref(`users/${uid}`).once("value");
@@ -169,7 +212,7 @@ const socketPlugin: FastifyPluginAsync = async (fastify) => {
           ...messageData,
         });
       } catch (error) {
-        fastify.log.error("Chat error");
+        fastify.log.error({ err: error }, "Chat error");
         socket.emit("error", { message: "Failed to send message." });
       }
     });

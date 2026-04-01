@@ -39,14 +39,10 @@ const usersRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
         return reply.send({ success: true, user: request.user });
       }
     } catch (error: any) {
-      fastify.log.error("Error fetching user profile:");
+      fastify.log.error({ err: error }, "Error fetching user profile");
       return reply
         .status(500)
-        .send({
-          success: false,
-          message: "Server error",
-          error: error.message,
-        });
+        .send({ success: false, message: "Internal server error" });
     }
   });
 
@@ -76,13 +72,10 @@ const usersRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       return reply.send({ success: true, message: "Profile created" });
     } catch (error: any) {
+      fastify.log.error({ err: error }, "Error creating user profile");
       return reply
         .status(500)
-        .send({
-          success: false,
-          message: "Server error",
-          error: error.message,
-        });
+        .send({ success: false, message: "Internal server error" });
     }
   });
 
@@ -114,13 +107,10 @@ const usersRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
             .send({ success: false, message: "User not found" });
         }
       } catch (error: any) {
+        fastify.log.error({ err: error }, "Error fetching user profile");
         return reply
           .status(500)
-          .send({
-            success: false,
-            message: "Server error",
-            error: error.message,
-          });
+          .send({ success: false, message: "Internal server error" });
       }
     },
   );
@@ -183,13 +173,10 @@ const usersRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
 
         return reply.send({ success: true, claimedRooms: result });
       } catch (error: any) {
+        fastify.log.error({ err: error }, "Error fetching claimed items");
         return reply
           .status(500)
-          .send({
-            success: false,
-            message: "Server error",
-            error: error.message,
-          });
+          .send({ success: false, message: "Internal server error" });
       }
     },
   );

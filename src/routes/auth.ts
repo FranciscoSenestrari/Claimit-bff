@@ -1,14 +1,15 @@
 import { FastifyPluginAsync } from "fastify";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET =
-  process.env.JWT_SECRET || "super_secret_key_change_in_production";
+// JWT_SECRET is guaranteed to be set — plugins/auth.ts throws at startup if it's missing
+const JWT_SECRET = process.env.JWT_SECRET as string;
 const SUPERUSER_UID = process.env.SUPERUSER_UID;
 
 const authRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
-  // POST /api/auth/login
-  // Verifies Firebase ID Token and issues a standard JWT
-  fastify.post("/api/auth/login", async (request, reply) => {
+  // POST /api/auth/login — stricter rate limit: 10 attempts per minute per IP
+  fastify.post('/api/auth/login', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     try {
       const { idToken } = request.body as { idToken?: string };
 
