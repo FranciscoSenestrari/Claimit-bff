@@ -33,6 +33,7 @@ const usersRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
             storeId: userData.storeId || null,
             email: userData.email,
             displayName: userData.displayName,
+            phone: userData.phone,
           },
         });
       } else {
