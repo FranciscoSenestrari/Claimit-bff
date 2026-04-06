@@ -234,6 +234,34 @@ const roomsRoutes: FastifyPluginAsync = async (fastify): Promise<void> => {
     }
   })
 
+  // POST /api/rooms/:id/admin/clear_active — room admin only
+  fastify.post('/api/rooms/:id/admin/clear_active', adminAuth, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string }
+      const roomRef = fastify.db.ref(`rooms/${id}`)
+      const activeProductRef = roomRef.child('active_product')
+      const historyRef = roomRef.child('history')
+
+      const snap = await activeProductRef.once('value')
+      const currentActive = snap.val()
+
+      if (currentActive && currentActive.claimed_by) {
+        const finalPrice = currentActive.isBidding
+          ? currentActive.currentBid || currentActive.price
+          : currentActive.price
+        await historyRef.push({ ...currentActive, price: finalPrice, archivedAt: Date.now() })
+      }
+
+      await activeProductRef.remove()
+
+      fastify.io.to(id).emit('roomUpdated')
+      return reply.send({ success: true, message: 'Active product cleared' })
+    } catch (error: any) {
+      fastify.log.error({ err: error }, 'Error clearing active product')
+      return reply.status(500).send({ success: false, message: 'Internal server error' })
+    }
+  })
+
   // POST /api/rooms/:id/admin/finalize_bid — room admin only
   fastify.post('/api/rooms/:id/admin/finalize_bid', adminAuth, async (request, reply) => {
     try {
